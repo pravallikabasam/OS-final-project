@@ -1,0 +1,269 @@
+//c
+#include<stdio.h>
+#include<stdlib.h>
+#include<stdbool.h>
+typedef struct process{
+	int id;
+	int burst_time;
+	int arival_time;
+	int priority;
+	int waiting_time,turnaround_time;
+} process;
+struct link
+{
+	struct process *x;
+	struct link *next;
+	struct link *prev;
+};
+int roundRobinTimeQuantum=2,globalTick=0,q1_tiktik=0,q2_tiktik=0;
+struct link *roundrobin;
+struct que
+{
+	struct link *start,*end;
+}que1,que2;
+process* remove_from_q(struct que* q,struct link* l)
+{
+	struct process *p = l->x;
+	// Check for last element.
+	if(q->end==q->start || q->start==0)
+	{
+		q->start=0;
+		q->end = 0;
+	}
+	else{
+		if(l==q->start)
+			q->start = l->next;
+		if(l==q->end)
+			q->end = l->prev;
+		if(l->prev!=0)l->prev->next=l->next;
+		if(l->next!=0)l->next->prev=l->prev;
+	}
+	free(l);
+	return p;
+}
+
+void add_to_q2(struct process* p,struct que* q)
+{
+	struct link* l = (struct link*)malloc(sizeof(struct link));
+	l->x= p;
+	// circular
+	l->prev=q->end;
+	l->next = q->start;
+	if(q->start==NULL)
+	{
+		q->start = l;
+		q->end=l;
+		l->next=l;
+		l->prev=l;
+		roundrobin = q->start;
+	}
+	else
+	{
+		q->end->next = l;
+		q->start->prev=l;
+	}
+	q->end = l;
+	
+}
+void add_to_q1(struct process *p,struct que* q,struct que* q2)
+{
+	// Create new node.
+	struct link* l = (struct link*)malloc(sizeof(struct link));
+	l->x = p;
+	// If Q1 empty
+	if(q->start==0)
+	{
+		l->next=0;
+		l->prev=0;
+		q->start = l;
+		q->end=q->start;
+	}
+	else
+	{
+		// Add to top.
+		struct link *j=q->start;
+		// Find new node pos., before some node j
+		while(j->next)
+		{
+			// If current prio. > new prio.
+			if(j->x->priority>p->priority)
+			{
+				break;
+			}
+			j=j->next;
+		}
+		// If top node needs replacement...
+		if(j==q->start)
+		{
+			printf("\tPreempting P%d[prio.=%d] in Q1 and replacing it with P%d[prio.=%d]... P%d goes to Q2\n",j->x->id,j->x->priority,p->id,p->priority,j->x->id);
+				l->prev = 0;
+				l->next = q->start->next;
+				q->start = l;
+				struct process* pt = remove_from_q(q,j);
+				add_to_q2(pt,q2);
+		}
+		// If this must be the last node.
+		else if(j==q->end)
+		{
+			// This node must be the last node.
+			if(j->x->priority<p->priority)
+			{
+				j->next = l;
+				l->next = 0;
+				l->prev = j;
+			}
+			// Insert before the last node.
+			else{
+				l->next = j;
+				l->prev = j->prev;
+				j->prev->next = l;
+				j->prev = l;
+				j->next = 0;
+			}
+		}
+		// Else insert in between, before j.
+		else
+			{
+				l->next = j;
+				l->prev = j->prev;
+				j->prev->next = l;
+				j->prev = l;
+			}
+	}
+}
+int check_queue_empty(struct que* q)
+{
+	if(q->start==0)
+	{
+		return 1;
+	}
+	else
+	{
+		return 0;
+	}
+}
+void q1_tick(struct que* q)
+{
+	struct process* top;
+	top=q->start->x;
+	printf("\t\tTick %d, Q1 ticking P%d[BurstTime=%d-1=%d]\n",globalTick,top->id,top->burst_time,top->burst_time-1);
+	top->burst_time-=1;
+	if(top->burst_time==0)
+	{
+		top=remove_from_q(q,q->start);
+		printf("Process %d in Q1 finished at tick %d.\n",top->id,globalTick);
+	}
+	++q1_tiktik;
+}
+void q2_tick(struct que* q)
+{
+	if(q2_tiktik%roundRobinTimeQuantum==0)
+	{
+		roundrobin=roundrobin->next;
+	}
+	struct process* top;
+	printf("\t\tTick %d, Q2 ticking P%d[BurstTime=%d-1=%d]\n",globalTick,roundrobin->x->id,roundrobin->x->burst_time,roundrobin->x->burst_time-1);
+	roundrobin->x->burst_time-=1;
+	if(roundrobin->x->burst_time==0)
+	{
+		roundrobin=roundrobin->next;
+		top=remove_from_q(q,roundrobin->prev);
+		printf("Process %d in Q2 finished at tick %d.\n",top->id,globalTick);
+	}
+	++q2_tiktik;
+}
+int tick(int *tick_var,struct process *p_array,int process_count,struct que* queue1,struct que* queue2)
+{
+	int i;
+	// Add proceses to Queues
+	for(i=0;i<process_count;i++)
+	{
+		if(p_array[i].arival_time==*tick_var)
+		{
+			printf("On tick %d Adding P%d to Q1\n",*tick_var,p_array[i].id);
+			add_to_q1(&p_array[i],queue1,queue2);
+		}
+	}
+	// Check if queues full.
+	int q1=!check_queue_empty(queue1),q2=!check_queue_empty(queue2);
+	
+	q1=!check_queue_empty(queue1);
+	if(q1>0)
+	{
+		// Q1 full
+		q1_tick(queue1);
+	}
+	else if(q2>0)
+	{
+		// Q1 empty, Q2 full.
+		q2_tick(queue2);
+	}
+	// Check if any processes left for arrival
+	for(i=0;i<process_count;i++)
+	{
+		if(p_array[i].arival_time+p_array[i].burst_time>*tick_var)q1=1;
+	}
+	// Is Q2 full?
+	q2=!check_queue_empty(queue2);
+	*tick_var+=1;
+	// True if Q1full||Q2full
+	return (q1>0||q2>0);
+}
+int main()
+{
+	printf("\n Enter total no. of processes : \n");
+	int n;
+	scanf("%d",&n);
+	struct process p_array[n];
+	int w;
+	for(w=0;w<n;w++){
+		printf("\n PROCESS [%d]",w+1);
+		printf(" Enter process id : ");
+		scanf("%d",&p_array[w].id);
+		printf(" Enter burst time : ");
+		scanf("%d",&p_array[w].burst_time);
+ 		hey1:printf(" Enter arrival time :\nNote only multiples of 2 are allowed\n ");
+		scanf("%d",&p_array[w].arival_time);
+		if(p_array[w].arival_time%2!=0)
+		{
+			printf("Hey I said you ..Multiples of 2 only..!!\n");
+			goto hey1;
+		}
+		printf(" Enter priority : ");
+		scanf("%d",&p_array[w].priority);
+	}
+	/*p_array[0].id=0;
+	p_array[0].arival_time=0;
+	p_array[0].burst_time=6;
+	p_array[0].priority=4;
+
+	p_array[1].id=1;
+	p_array[1].arival_time=2;
+	p_array[1].burst_time=4;
+	p_array[1].priority=2;
+
+	p_array[2].id=2;
+	p_array[2].arival_time=4;
+	p_array[2].burst_time=6;
+	p_array[2].priority=3;
+
+	p_array[3].id=3;
+	p_array[3].arival_time=6;
+	p_array[3].burst_time=2;
+	p_array[3].priority=1;
+
+	p_array[4].id=4;
+	p_array[4].arival_time=8;
+	p_array[4].burst_time=4; 
+	p_array[4].priority=0;*/
+
+	q2_tiktik=0;q1_tiktik=0;
+	struct que q1,q2;
+	q1.start = NULL;
+	q1.end = NULL;
+	q2.end = NULL;
+	q2.start = NULL;
+	while(tick(&globalTick,p_array,n,&q1,&q2));
+	printf("\nDone");
+	
+}
